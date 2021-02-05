@@ -8,3 +8,4 @@
 
 ### x64
 - https://github.com/kagasu/ThreadHijacking/tree/x64
+- https://docs.microsoft.com/en-us/cpp/build/x64-calling-convention
