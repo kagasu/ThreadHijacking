@@ -64,29 +64,44 @@ DWORD GetProcessIdByName(const wchar_t* targetProcessName)
 int main()
 {
 	uint8_t shellcode[] = {
-		0x60,						  // pushad
-		0x9C,						  // pushfd
-		0x68, 0x00, 0x00, 0x00, 0x00, // push 0x00
-		0x68, 0x00, 0x00, 0x00, 0x00, // push 0x00
-		0xB8, 0x00, 0x00, 0x00, 0x00, // mov eax, 0x00000000
-		0xFF, 0xD0,					  // call eax
-		0xBB, 0x00, 0x00, 0x00, 0x00, // mov ebx, 0x00000000
-		0x89, 0x03,					  // mov [ebx], eax
-		// change esp when calling convention is "__cdecl"
-		// 0x83, 0xC4, 0x08,		  // add esp, 0x08
-		0x9D,						  // popfd
-		0x61,						  // popad
-		0xC3,						  // retn
+		0x50, // push rax
+		0x51, // push rcx
+		0x52, // push rdx
+		0x53, // push rbx
+		0x54, // push rsp
+		0x55, // push rbp
+		0x56, // push rsi
+		0x57, // push rdi
+
+		0xba, 0x00, 0x00, 0x00, 0x00, // mov edx, arg2
+		0xb9, 0x00, 0x00, 0x00, 0x00, // mov ecx, arg1
+		0x48, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov rax, address
+
+		0xff, 0xd0, // call rax
+
+		0x48, 0xba, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // mov rdx, address
+		0x48, 0x89, 0x02, // mov [rdx], rax
+
+		0x5f, // pop rdi
+		0x5e, // pop rsi
+		0x5d, // pop rbp
+		0x5c, // pop rsp
+		0x5b, // pop rbx
+		0x5a, // pop rdx
+		0x59, // pop rcx
+		0x58, // pop rax
+
+		0xc3, // ret
 	};
 
 	auto processId = GetProcessIdByName(L"Victim.exe");
 	auto arg1 = 1;
 	auto arg2 = 1;
-	const auto functionAddress = 0x003B1020;
-	const auto offsetOfFunctionArgument1 = 3;
-	const auto offsetOfFunctionArgument2 = 8;
-	const auto offsetOfFunctionAddress = 13;
-	const auto offsetOfReturnAddress = 20;
+	const auto functionAddress = 0x00007FF7B7F11020;
+	const auto offsetOfFunctionArgument1 = 9;
+	const auto offsetOfFunctionArgument2 = 14;
+	const auto offsetOfFunctionAddress = 20;
+	const auto offsetOfReturnAddress = 32;
 
 	// write arg1, arg2
 	memcpy(&shellcode[offsetOfFunctionArgument1], &arg1, sizeof(arg1));
@@ -111,7 +126,7 @@ int main()
 
 	SuspendThread(hThread);
 
-	auto allocatedReturnValue = VirtualAllocEx(hProcess, NULL, sizeof(DWORD), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+	auto allocatedReturnValue = VirtualAllocEx(hProcess, NULL, sizeof(uint64_t), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 	if (allocatedReturnValue == NULL)
 	{
 		DebugLog("VirtualAlloc failed");
@@ -142,15 +157,15 @@ int main()
 	}
 
 	// push return address
-	context.Esp -= 4;
-	if (!WriteProcessMemory(hProcess, reinterpret_cast<LPVOID>(context.Esp), &context.Eip, sizeof(DWORD), nullptr))
+	context.Rsp -= 8;
+	if (!WriteProcessMemory(hProcess, reinterpret_cast<uint64_t*>(context.Rsp), &context.Rip, sizeof(uint64_t), nullptr))
 	{
 		DebugLog("WriteProcessMemory failed");
 		return 1;
 	}
 
-	// change EIP(Extend instruction pointer)
-	context.Eip = reinterpret_cast<DWORD>(allocatedShellCodeAddress);
+	// change RIP
+	context.Rip = reinterpret_cast<uint64_t>(allocatedShellCodeAddress);
 
 	if (!SetThreadContext(hThread, &context))
 	{
@@ -165,7 +180,7 @@ int main()
 
 	// read return value
 	DWORD returnValue = 0;
-	if (!ReadProcessMemory(hProcess, reinterpret_cast<LPCVOID>(allocatedReturnValue), &returnValue, sizeof(returnValue), nullptr))
+	if (!ReadProcessMemory(hProcess, reinterpret_cast<uint64_t*>(allocatedReturnValue), &returnValue, sizeof(returnValue), nullptr))
 	{
 		DebugLog("ReadProcessMemory failed");
 		return 1;
